@@ -6,6 +6,7 @@ import sendEmail from "../config/sendEmail.js";
 import varifyEmailTemplate from "../utils/varifyEmailTemplate.js";
 import generatedAccessToken from "../utils/generatedAccessToken.js";
 import generatedRefreshToken from "../utils/generatedRefreshToken.js";
+
 // User Register
 export const registerUser = async (req, res) => {
   try {
@@ -127,7 +128,7 @@ export const loginController = async (req, res) => {
       });
     }
 
-    const checkPassword = bcryptjs.compare(password, user.password);
+    const checkPassword = await bcryptjs.compare(password, user.password);
     if (!checkPassword) {
       return res.status(400).json({
         message: "Check your password",
@@ -135,13 +136,58 @@ export const loginController = async (req, res) => {
         success: false,
       });
     }
-//for login it is manadetory to provide accesstoken
+    //for login it is manadetory to provide accesstoken
     const accessToken = generatedAccessToken(user._id);
     const refreshToken = generatedRefreshToken(user._id);
+    const cookieOptions = {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+    };
+    res.cookie("accessToken", accessToken, cookieOptions);
+    res.cookie("refreshToken", refreshToken, cookieOptions);
+
+    res.json({
+      message: "Login Successfull 👍",
+      error: false,
+      success: true,
+      data: {
+        accessToken,
+        refreshToken,
+      },
+    });
   } catch (error) {
     return res.status(500).json({
-      message: "Error in login Server or api",
+      message: "Error in login Server or api 🫥",
       error,
+      error: true,
+      success: false,
+    });
+  }
+};
+
+export const logoutController = async (req, res) => {
+  console.log("Clearing cookies for logout...");
+
+  try {
+    const cookieOptions = {
+      httpOnly: true,
+      secure: true,
+      sameSite: "none",
+    };
+    
+
+    res.clearCookie("accessToken", cookieOptions);
+    res.clearCookie("refreshToken", cookieOptions);
+
+    return res.status(200).json({
+      message: "Logout Successfull",
+      error: false,
+      success: true,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || error,
       error: true,
       success: false,
     });

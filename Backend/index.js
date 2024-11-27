@@ -19,6 +19,8 @@ app.use(
     origin: process.env.FRONTEND_URL,
   })
 );
+ 
+
 
 app.use(express.json());
 app.use(morgan()); // for any api call it show in console
@@ -40,3 +42,4 @@ connectDB().then(() => {
 });
 
  app.use('/api/user',userRouter)
+ 
