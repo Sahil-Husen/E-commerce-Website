@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import bcryptjs from "bcryptjs";
+import jwt from "jsonwebtoken";
 import jsonwebtoken from "jsonwebtoken";
 import UserModel from "../model/user.model.js";
 import sendEmail from "../config/sendEmail.js";
@@ -7,6 +8,8 @@ import varifyEmailTemplate from "../utils/varifyEmailTemplate.js";
 import generatedAccessToken from "../utils/generatedAccessToken.js";
 import generatedRefreshToken from "../utils/generatedRefreshToken.js";
 import uploadImageCloudinary from "../utils/uploadImageCloudinary.js";
+import generateOTP from "../utils/generatedOtp.js";
+import { forgotPasswordTemplate } from "../utils/forgotPasswordTemplate.js";
 
 // User Register
 export const registerUser = async (req, res) => {
@@ -224,9 +227,9 @@ export const uploadAvatar = async (req, res) => {
     const upload = await uploadImageCloudinary(image); //here we are uploading the image
     // now we are storing this image in data base
     // so only login user can upload so get the user Id from the auth userId
-console.log("upload is ",await upload);
+    console.log("upload is ", await upload);
     const updateAvatar = await UserModel.findByIdAndUpdate(userId, {
-      avatar:await upload.url
+      avatar: await upload.url,
     });
 
     console.log(updateAvatar);
@@ -234,9 +237,281 @@ console.log("upload is ",await upload);
       message: "Avatat Uploaded",
       data: {
         _id: userId,
-        avatar: upload.url
+        avatar: upload.url,
       },
     });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || error,
+      error: true,
+      success: false,
+    });
+  }
+};
+
+// update user details
+export const updateUserDetails = async (req, res) => {
+  try {
+    const userId = req.userId; // auth middleware
+    const { name, email, password, mobile } = req.body;
+    if (!(name || email || password || mobile)) {
+      return res.json({
+        message: "Please provide any value to update!😉",
+        error: false,
+        success: false,
+      });
+    }
+
+    let hashedPassword = "";
+    if (password) {
+      const salt = await bcryptjs.genSalt(10);
+      hashedPassword = await bcryptjs.hash(password, salt);
+    }
+
+    const updateUser = await UserModel.updateOne(
+      { _id: userId },
+      {
+        ...(name && { name: name }), // here we are using ADD operator for if name,email,password and mobile number is available from user end then it process the updation
+        ...(email && { email: email }),
+        ...(password && { password: hashedPassword }),
+        ...(mobile && { mobile: mobile }),
+      }
+    );
+
+    // when the update part is done then Send Response back.
+    return res.json({
+      message: "User Updated Successfully",
+      error: false,
+      success: true,
+      data: {
+        updateUser,
+      },
+    });
+  } catch (error) {
+    return res.send(500).json({
+      messae: error.message || error,
+      error: true,
+      success: false,
+    });
+  }
+};
+
+// here forgot password api starts
+// Forget Password not Login
+export const forgotPasswordController = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await UserModel.findOne({ email });
+    if (!user) {
+      return res.status(401).json({
+        message: "User not Exist",
+        error: true,
+        success: false,
+      });
+    }
+
+    const otp = generateOTP();
+    const expireTime = new Date() + 60 * 60 * 1000; // 1 hr
+    // now update  forgot_password_otp &&  forgot_password_expiry in database
+
+    const update = await UserModel.findByIdAndUpdate(user._id, {
+      forgot_password_otp: otp,
+      forgot_password_expiry: new Date(expireTime).toISOString(),
+    });
+
+    console.log(update);
+    // Send OTP email
+    // this is from the ../config/sendEmail
+    await sendEmail({
+      sendTo: email,
+      subject: "Forgot password OTP from Blinkeyit",
+      html: forgotPasswordTemplate({
+        name: user.name,
+        otp: otp,
+      }),
+    });
+
+    // Now send the response back to user
+    return res.json({
+      message: "OTP! Sent Check Your Email.",
+      error: false,
+      success: false,
+      data: {
+        otp: otp,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || error,
+      error: true,
+      success: false,
+    });
+  }
+};
+
+// Varify forgot password otp
+export const varifyForgotPasswordOTP = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!(email || otp)) {
+      return res.json({
+        message: "Please Provide required fields email and otp",
+        error: true,
+        success: false,
+      });
+    }
+
+    const user = await UserModel.findOne({ email }); // find user in db
+    if (!user) {
+      return res.status(401).json({
+        message: "User not Exist",
+        error: true,
+        success: false,
+      });
+    }
+
+    const currentTime = new Date().toISOString;
+
+    if (user.forgot_password_expiry > currentTime) {
+      return res.json({
+        message: "OTP expired",
+        error: true,
+        success: false,
+      });
+    }
+
+    if (otp !== user.forgot_password_otp) {
+      return res.json({
+        message: "OTP is invalid",
+        error: true,
+        success: false,
+      });
+    }
+
+    // if otp  is not expired and otp === user.forgot_password_otp
+    return res.json({
+      message: "OTP varification successful",
+      error: false,
+      success: true,
+    });
+  } catch (error) {
+    return res.json({
+      message: error.message || error,
+      error: true,
+      success: false,
+    });
+  }
+};
+
+// Reset the Password
+export const resetPassword = async (req, res) => {
+  try {
+    const { email, newPassword, confirmPassword } = req.body;
+    // check email and password is provided or not
+
+    if (!(email && newPassword && confirmPassword)) {
+      return res.status(400).json({
+        message: "Please provide all fields",
+        error: true,
+        success: false,
+      });
+    }
+
+    const user = await UserModel.findOne({ email }); // check user exist in database or not
+    if (!user) {
+      return res.status(400).json({
+        message: "Email is not present",
+        error: true,
+        success: false,
+      });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        message: "New password and confirm password not matched",
+        error: true,
+        success: false,
+      });
+    }
+
+    // now convert the password in hashed password using bcyptjs
+    const salt = await bcryptjs.genSalt(10);
+    const hashedPassword = await bcryptjs.hash(newPassword, salt);
+
+    // now update or reset the password
+    const update = await UserModel.findOneAndUpdate(user._id, {
+      password: hashedPassword,
+    });
+
+    // now set response back to client
+
+    return res.json({
+      message: "Password Reset Successfully",
+      error: false,
+      success: true,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: error.message || error,
+      error: true,
+      success: false,
+    });
+  }
+};
+// here forgot password api ends
+
+// now Refresh token Controller
+export const refreshToken = async (req, res) => {
+  try {
+    const refreshToken =
+      req.cookies.refreshToken || req?.header?.authorization?.split(" ")[1];
+    if (!refreshToken) {
+      return res.status(401).json({
+        message: "Invalid Refresh token",
+        error: true,
+        success: false,
+      });
+    }
+
+    const varifyToken = jwt.verify(
+      refreshToken,
+      process.env.SECRET_KEY_REFRESH_TOKEN
+    );
+
+    if (!varifyToken) {
+      return res.status(401).json({
+        message: "token is expired",
+        error: true,
+        success: false,
+      });
+    }
+
+    const userId = varifyToken?._id;
+    const newAccessToken = await generatedAccessToken(userId);
+    // console.log(newAccessToken);
+    // now send to cookies
+
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production", // Set secure only in production
+      sameSite: "none",
+    };
+
+    res.cookie('accessToken',newAccessToken,cookieOptions)
+
+    return res.json({
+      message:"new access token generated using refresh token",
+      error:false,
+      success:true,
+      data:{
+        accessToken:newAccessToken
+      }
+
+    })
+
+  
+    
   } catch (error) {
     return res.status(500).json({
       message: error.message || error,
