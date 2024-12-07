@@ -1,22 +1,30 @@
-import mongoose from 'mongoose'
-import dotenv from 'dotenv'
-dotenv.config()
+import mongoose from 'mongoose';
+import dotenv from 'dotenv';
 
-if(!(process.env.MONGODB_URL)){
-    throw  new Error('Mongo url not found')
-    
+dotenv.config();
+
+if (!process.env.MONGODB_URL) {
+  throw new Error('MongoDB URL not found');
 }
- const connectDBs = async ()=>{
-    try {
-     await   mongoose.connect(process.env.MONGODB_URL)
-     console.log('Database Connected Successfully');
-    } catch (error) {
-        console.log("Error in connecting to database")
-        console.log(error);
-        process.exit(1)
 
-    }
- }
+const connectDB = async () => {
+  try {
+    console.log("MongoDB URL:", process.env.MONGODB_URL);
+    mongoose.connect(process.env.MONGODB_URL, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    })
+      .then(() => console.log('Connected to MongoDB!'))
+      .catch((err) => {
+        console.error('Failed to connect to MongoDB:', err);
+        process.exit(1); // Exit the application if the connection fails
+      });
+    console.log('Database Connected Successfully');
+  } catch (error) {
+    console.log("Error in connecting to database");
+    console.error("Error details:", error.message);
+    process.exit(1);
+  }
+};
 
-
- export default connectDBs;
+export default connectDB;

@@ -5,25 +5,22 @@ dotenv.config();
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import helmet from "helmet";
-import connectDB from "./config/connectDB.js";
+// import connectDB from "./config/connectDB.js";
+import connectDB from './config/connectDB.js'
 // import userRouter from "./routes/user.routes.js";
-import userRouter from './routes/user.routes.js'
- 
- 
- 
+import userRouter from "./routes/user.routes.js";
 
 const app = express();
+app.use(cookieParser());
 app.use(
   cors({
     credentials: true,
     origin: process.env.FRONTEND_URL,
   })
 );
- 
-
 
 app.use(express.json());
-app.use(morgan()); // for any api call it show in console
+// app.use(morgan()); // for any api call it show in console
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
@@ -31,15 +28,18 @@ app.use(
 );
 
 const PORT = 5000;
+connectDB()
 app.get("/", (req, res) => {
   res.json({ message: "Response from Server : " + PORT });
-});
+}).listen(PORT,()=>{
+  console.log(`Server is listenning on ${PORT}`);
+})
 
-connectDB().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Server is listening on port ${PORT}`);
-  });
-});
 
- app.use('/api/user',userRouter)
- 
+// connectDB().then(() => {
+//   app.listen(PORT, () => {
+//     console.log(`Server is listening on port ${PORT}`);
+//   });
+// });
+
+app.use("/api/user", userRouter);

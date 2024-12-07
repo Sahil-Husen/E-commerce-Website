@@ -6,6 +6,7 @@ import sendEmail from "../config/sendEmail.js";
 import varifyEmailTemplate from "../utils/varifyEmailTemplate.js";
 import generatedAccessToken from "../utils/generatedAccessToken.js";
 import generatedRefreshToken from "../utils/generatedRefreshToken.js";
+import uploadImageCloudinary from "../utils/uploadImageCloudinary.js";
 
 // User Register
 export const registerUser = async (req, res) => {
@@ -101,54 +102,68 @@ export const varifyEmailController = async (req, res) => {
   }
 };
 
+// login controller
+// import generatedAccessToken from "../utils/generatedAccessToken.js";
+// import generatedRefreshToken from "../utils/generatedRefreshToken.js";
+// import UserModel from "../model/user.model.js";
+// import bcryptjs from "bcryptjs"; //Make sure this is imported
+
+// login controller
 export const loginController = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    // Input validation
     if (!(email && password)) {
-      return res.status(400).json({
-        message: "Please provide Email & Password",
-        error: true,
-      });
+      return res
+        .status(400)
+        .json({ message: "Please provide Email & Password", error: true });
     }
+
     const user = await UserModel.findOne({ email });
     if (!user) {
-      return res.status(400).json({
-        message: "User not found",
-        error: true,
-        success: false,
-      });
+      return res
+        .status(404)
+        .json({ message: "User not found! Please register", error: true });
     }
 
     if (user.status !== "Active") {
-      return res.status(400).json({
-        message: "Contact to Admin",
+      return res.status(403).json({
+        message: "Contact to Admin for Account Activation",
         error: true,
-        success: false,
       });
     }
 
     const checkPassword = await bcryptjs.compare(password, user.password);
     if (!checkPassword) {
-      return res.status(400).json({
-        message: "Check your password",
+      return res
+        .status(401)
+        .json({ message: "Incorrect password", error: true });
+    }
+
+    const accessToken = await generatedAccessToken(user._id);
+    const refreshToken = await generatedRefreshToken(user._id);
+
+    //Handle potential token generation errors
+    if (!accessToken || !refreshToken) {
+      console.error("Error generating tokens."); // Log for debugging
+      return res.status(500).json({
+        message: "Login failed. Please try again later.",
         error: true,
-        success: false,
       });
     }
-    //for login it is manadetory to provide accesstoken
-    const accessToken = generatedAccessToken(user._id);
-    const refreshToken = generatedRefreshToken(user._id);
+
     const cookieOptions = {
       httpOnly: true,
-      secure: true,
+      secure: process.env.NODE_ENV === "production", // Set secure only in production
       sameSite: "none",
     };
+
     res.cookie("accessToken", accessToken, cookieOptions);
     res.cookie("refreshToken", refreshToken, cookieOptions);
 
     res.json({
-      message: "Login Successfull 👍",
+      message: "Login Successful 👍",
       error: false,
       success: true,
       data: {
@@ -157,33 +172,70 @@ export const loginController = async (req, res) => {
       },
     });
   } catch (error) {
-    return res.status(500).json({
-      message: "Error in login Server or api 🫥",
-      error,
+    console.error("Login error:", error); // Log the error for debugging
+    res
+      .status(500)
+      .json({ message: "Login failed. Please try again later.", error: true });
+  }
+};
+
+// logout Controller
+export const logoutController = async (req, res) => {
+  try {
+    const userid = req.userId;
+    // console.log("this userid from controller received from auth",userid);  // coming from the auth  middleware line no-28
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production" ? true : false, // Only secure in production
+      sameSite: "none",
+    };
+
+    //Clear cookies - Note the order is important for sameSite=none
+    res.clearCookie("refreshToken", cookieOptions);
+    res.clearCookie("accessToken", cookieOptions);
+
+    // after auth middleware getting the userid now we are going to remove the token from the database;
+
+    const removeRefreshToken = await UserModel.findByIdAndUpdate(userid, {
+      refresh_token: "",
+    });
+
+    res.status(200).json({
+      message: "Logout Successful",
+      error: false,
+      success: true,
+    });
+  } catch (error) {
+    console.error("Logout error:", error); // Log the error for debugging
+    res.status(500).json({
+      message: "Logout failed", // More user-friendly message
       error: true,
       success: false,
     });
   }
 };
 
-export const logoutController = async (req, res) => {
-  console.log("Clearing cookies for logout...");
-
+// upload user avatar
+export const uploadAvatar = async (req, res) => {
   try {
-    const cookieOptions = {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-    };
-    
+    const userId = req.userId; // coming from the auth middleware
 
-    res.clearCookie("accessToken", cookieOptions);
-    res.clearCookie("refreshToken", cookieOptions);
+    const image = req.file; // comign from the multer middleware  // file that is coming from frontend or postman
+    const upload = await uploadImageCloudinary(image); //here we are uploading the image
+    // now we are storing this image in data base
+    // so only login user can upload so get the user Id from the auth userId
+console.log("upload is ",await upload);
+    const updateAvatar = await UserModel.findByIdAndUpdate(userId, {
+      avatar:await upload.url
+    });
 
-    return res.status(200).json({
-      message: "Logout Successfull",
-      error: false,
-      success: true,
+    console.log(updateAvatar);
+    return res.json({
+      message: "Avatat Uploaded",
+      data: {
+        _id: userId,
+        avatar: upload.url
+      },
     });
   } catch (error) {
     return res.status(500).json({
